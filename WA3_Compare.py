@@ -122,13 +122,15 @@ def compare_dirs(base_id, results_df, by='kernel'):
     else:
         raise ValueError('`by` must be "kernel" or "section"')
 
+    if base_id not in results_df[by].unique():
+        raise ValueError('base_id "{}" not a valid "{}" (available: {}). '
+                         'Did you mean to set by="{}"?'.format(
+                             base_id, by, results_df[by].unique().tolist(), invariant))
+
     for metric, group in df.groupby('metric'):
-        print 'comparing {}'.format(metric)
 
-        for (workload, inv_id), wl_conf_group in group.groupby(['workload', invariant]):
-            gb = wl_conf_group.groupby(by)['value']
-
-            print 'comparing {} {}'.format(workload, inv_id)
+        for (workload, inv_id), wl_inv_group in group.groupby(['workload', invariant]):
+            gb = wl_inv_group.groupby(by)['value']
 
             if base_id not in gb.groups:
                 print 'Skipping - No baseline results for workload [{}] {} [{}] metric [{}]'.format(
