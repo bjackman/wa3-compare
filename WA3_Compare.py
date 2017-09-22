@@ -120,7 +120,7 @@ def get_results_summary(results_path):
             trace_path = os.path.join(results_path, subdir, 'trace.dat')
             for metric, value, units in get_additional_metrics(trace_path):
                 df = df.append(pd.DataFrame({
-                    'workload': workload, 'id': id, 'section': section, 'iteration': iteration,
+                    'workload': workload, 'id': id, 'iteration': iteration,
                     'metric': metric, 'value': value, 'units': units,
                     'trace_path': trace_path
                 }, index=[df.index[-1] + 1]))
@@ -130,10 +130,10 @@ def get_results_summary(results_path):
     kver = get_kernel_version(results_path)
     df['kernel'] = pd.Series(kver for _ in range(len(df))) # um
 
+    df['section'] = df.id.apply(lambda id: id.split('-')[0])
     df.to_csv(cached_csv_path)
 
     return df
-
 
 # In[14]:
 
