@@ -15,7 +15,7 @@ from bart.common.Utils import area_under_curve
 from trappy.utils import handle_duplicate_index
 
 def get_additional_metrics(trace_path, platform=None):
-    events = ['irq_handler_entry', 'cpu_frequency', 'sched_load_cfs_rq', 'nohz_kick']
+    events = ['irq_handler_entry', 'cpu_frequency', 'sched_load_cfs_rq', 'nohz_kick', 'sched_switch']
     trace = Trace(platform, trace_path, events)
 
     yield 'cpu_wakeup_count', len(trace.data_frame.cpu_wakeups()), None
