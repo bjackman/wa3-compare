@@ -48,30 +48,30 @@ from trappy.utils import handle_duplicate_index
 
 def get_additional_metrics(trace_path):
     trace = Trace(platform, trace_path, ['irq_handler_entry', 'cpu_frequency', 'sched_load_cfs_rq', 'nohz_kick'])
-    
+
     yield 'cpu_wakeup_count', len(trace.data_frame.cpu_wakeups()), None
-    
+
     clusters = trace.platform.get('clusters')
     if clusters:
         for cluster in clusters.values():
             name = '-'.join(str(c) for c in cluster)
-            
+
             df = trace.data_frame.cluster_frequency_residency(cluster)
             df = df.reset_index()
             avg_freq = (df.frequency * df.time).sum() / df.time.sum()
             metric = 'avg_freq_cluster_{}'.format(name)
             yield metric, avg_freq, 'MHz'
-            
+
             df = trace.data_frame.trace_event('cpu_frequency')
             df = df[df.cpu == cluster[0]]
             yield 'freq_transition_count_{}'.format(name), len(df), None
-            
+
     if trace.hasEvents('sched_load_cfs_rq'):
         util_sum = (handle_duplicate_index(trace.data_frame.trace_event('sched_load_cfs_rq')[lambda r: r.path == '/'])
                     .pivot(columns='cpu').util.ffill().sum(axis=1))
         avg_util_sum = area_under_curve(util_sum) / (util_sum.index[-1] - util_sum.index[0])
         yield 'avg_util_sum', avg_util_sum, None
-    
+
     if trace.hasEvents('nohz_kick'):
         yield 'nohz_kick_count', len(trace.data_frame.trace_event('nohz_kick')), None
 
@@ -90,33 +90,33 @@ def get_results_summary(results_path):
     cached_csv_path = os.path.join(results_path, 'lisa_results.csv')
     if os.path.exists(cached_csv_path):
         return pd.read_csv(cached_csv_path)
-    
+
     csv_path = os.path.join(results_path, 'results.csv')
     df = pd.read_csv(csv_path)
-    
+
     WlSpec = namedtuple('WlSpec', ['name', 'iterations'])
-    
+
     with open(os.path.join(results_path, '__meta', 'jobs.json')) as f:
         jobs = json.load(f)['jobs']
-        
+
     subdirs_done = []
-    
+
     i = 0
-    
+
     for job in jobs:
         workload = job['workload_name']
         id = job['id']
         section = id.split('-')[0] # TODO WA3 sould expose this
         for iteration in range(1, job['iterations'] + 1):
             subdir = '-'.join([id, workload, str(iteration)])
-            
+
             if subdir in subdirs_done:
                 # TODO: I think this is a bug: for 5 global iterations we get 5 jobs, I think there should only be one?
                 continue
-                
+
             print 'parsing trace {}'.format(i)
             i += 1
-            
+
             trace_path = os.path.join(results_path, subdir, 'trace.dat')
             for metric, value, units in get_additional_metrics(trace_path):
                 df = df.append(pd.DataFrame({
@@ -124,14 +124,14 @@ def get_results_summary(results_path):
                     'metric': metric, 'value': value, 'units': units,
                     'trace_path': trace_path
                 }, index=[df.index[-1] + 1]))
-                
+
             subdirs_done.append(subdir)
 
     kver = get_kernel_version(results_path)
     df['kernel'] = pd.Series(kver for _ in range(len(df))) # um
-    
+
     df.to_csv(cached_csv_path)
-    
+
     return df
 
 
@@ -143,12 +143,12 @@ def get_results(*dirs):
 def compare_dirs(base_kernel, results_df, by='kernel'):
     comparisons = []
     df = results_df
-    
+
     Comparison = namedtuple('Comparison', ['metric', 'wl_id',
-                                           'base_id', 'base_mean', 'base_std', 
+                                           'base_id', 'base_mean', 'base_std',
                                            'new_id', 'new_mean', 'new_std',
                                            'diff', 'diff_pct', 'pvalue'])
-    
+
     for metric, group in df.groupby('metric'):
         print 'comparing {}'.format(metric)
         
@@ -166,7 +166,7 @@ def compare_dirs(base_kernel, results_df, by='kernel'):
             for kernel, df in gb:
                 if kernel == base_kernel:
                     continue
-                    
+
                 new_mean = df.mean()
                 mean_diff = new_mean - base_mean
                 mean_diff_pct = mean_diff * 100. / base_mean
@@ -176,9 +176,8 @@ def compare_dirs(base_kernel, results_df, by='kernel'):
                     base_kernel, base_mean, base_df.std(), 
                     kernel, new_mean, df.std(),
                     mean_diff, mean_diff_pct, pvalue))
-    
-    return pd.DataFrame(comparisons)
 
+    return pd.DataFrame(comparisons)
 
 # In[15]:
 
@@ -210,7 +209,7 @@ df = comparisons
 for sha in df.new_id.unique().tolist() + df.base_id.unique().tolist():
     tag = check_output(['git', '-C', source_path, 'describe', '--all', sha]).strip()
     sha_map[sha] = tag
-    
+
 for sha, tag in sha_map.iteritems():
     df = df.replace(sha, tag)
 
@@ -239,11 +238,11 @@ thickness=0.3
 pos = np.arange(len(df['metric'].unique()))
 colors = ['r', 'g', 'b']
 for i, (kernel, kdf) in enumerate(df.groupby('new_id')):
-    bars = ax.barh(bottom=pos + (i * thickness), width=kdf['diff_pct'], height=thickness, label=kernel, 
+    bars = ax.barh(bottom=pos + (i * thickness), width=kdf['diff_pct'], height=thickness, label=kernel,
                 color=colors[i % len(colors)], align='center')
     for bar, pvalue in zip(bars, kdf['pvalue']):
         bar.set_alpha(1 - (min(pvalue * 10, 0.95)))
-    
+
 # add some text for labels, title and axes ticks
 ax.set_xlabel('Percent difference')
 [baseline] = df['base_id'].unique()
@@ -318,13 +317,13 @@ def do_plots(trace):
     df = (handle_duplicate_index(trace.data_frame.trace_event('sched_load_cfs_rq'))
           .pivot(columns='cpu')[lambda r: r.path == '/'].util)
     df.plot(figsize=(20, 3))
-    
+
     df = trace.data_frame.cpu_wakeups()
     df.reset_index().plot(kind='scatter', x='Time', y='__cpu', figsize=(20, 3))
-    
+
     df = pd.DataFrame(np.arange(len(df)), index=df.index)
     df.plot(figsize=(20, 3))
-    
+
 do_plots(trace1)
 do_plots(trace2)
 
