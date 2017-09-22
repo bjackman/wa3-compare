@@ -246,29 +246,30 @@ df = df[~df.metric.isin(ignored_metrics)]
 
 
 # In[ ]:
+def plot_comparisons(df):
+    for wl_id, workload_comparisons in df.groupby('wl_id'):
+        fig, ax = plt.subplots(figsize=(15, len(workload_comparisons) / 2.))
 
-fig, ax = plt.subplots(figsize=(15, len(df) / 2.))
+        thickness=0.3
+        pos = np.arange(len(workload_comparisons['metric'].unique()))
+        colors = ['r', 'g', 'b']
+        for i, (group, gdf) in enumerate(workload_comparisons.groupby('new_id')):
 
-thickness=0.3
-pos = np.arange(len(df['metric'].unique()))
-colors = ['r', 'g', 'b']
-for i, (kernel, kdf) in enumerate(df.groupby('new_id')):
-    bars = ax.barh(bottom=pos + (i * thickness), width=kdf['diff_pct'], height=thickness, label=kernel,
-                color=colors[i % len(colors)], align='center')
-    for bar, pvalue in zip(bars, kdf['pvalue']):
-        bar.set_alpha(1 - (min(pvalue * 10, 0.95)))
+            bars = ax.barh(bottom=pos + (i * thickness), width=gdf['diff_pct'], height=thickness, label=kernel,
+                        color=colors[i % len(colors)], align='center')
+            for bar, pvalue in zip(bars, gdf['pvalue']):
+                bar.set_alpha(1 - (min(pvalue * 10, 0.95)))
 
-# add some text for labels, title and axes ticks
-ax.set_xlabel('Percent difference')
-[baseline] = df['base_id'].unique()
-ax.set_title('Percent difference compared to {} \nopacity depicts p-value'.format(baseline))
-ax.set_yticklabels(df['metric'].unique())
-ax.set_yticks(pos + thickness / 2)
-ax.legend(loc='best')
+        # add some text for labels, title and axes ticks
+        ax.set_xlabel('Percent difference')
+        [baseline] = workload_comparisons['base_id'].unique()
+        ax.set_title('{}: Percent difference compared to {} \nopacity depicts p-value'.format(wl_id, baseline))
+        ax.set_yticklabels(gdf['metric'])
+        ax.set_yticks(pos + thickness / 2)
+        ax.legend(loc='best')
 
-ax.grid(True)
-# ax.set_xticklabels(('G1', 'G2', 'G3', 'G4', 'G5'))
-
+        ax.grid(True)
+        # ax.set_xticklabels(('G1', 'G2', 'G3', 'G4', 'G5'))
 
 # In[ ]:
 
