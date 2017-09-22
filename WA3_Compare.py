@@ -140,7 +140,7 @@ def get_results_summary(results_path):
 def get_results(*dirs):
     return reduce(lambda df1, df2: df1.append(df2), map(get_results_summary, dirs))
 
-def compare_dirs(base_kernel, results_df, by='kernel'):
+def compare_dirs(base_id, results_df, by='kernel'):
     comparisons = []
     df = results_df
 
@@ -149,22 +149,37 @@ def compare_dirs(base_kernel, results_df, by='kernel'):
                                            'new_id', 'new_mean', 'new_std',
                                            'diff', 'diff_pct', 'pvalue'])
 
+    # If comparing by kernel, only check comparisons where the 'section' is the same
+    # If comparing by section, only check where kernel is same
+    if by == 'kernel':
+        invariant = 'section'
+    elif by == 'section':
+        invariant = 'kernel'
+    else:
+        raise ValueError('`by` must be "kernel" or "section"')
+
     for metric, group in df.groupby('metric'):
         print 'comparing {}'.format(metric)
-        
-        for (workload, conf_id), wl_conf_group in group.groupby(['workload', 'id']):
-            gb = wl_conf_group.groupby('kernel')['value']
-            
-            if base_kernel not in gb.groups:
-                print 'Skipping - No baseline results for workload [{}] id [{}] metric [{}]'.format(
-                    workload, conf_id, metric)
+
+        for (workload, inv_id), wl_conf_group in group.groupby(['workload', invariant]):
+            gb = wl_conf_group.groupby(by)['value']
+
+            print 'comparing {} {}'.format(workload, inv_id)
+
+            if base_id not in gb.groups:
+                print gb.groups.keys()
+                print 'Skipping - No baseline results for workload [{}] {} [{}] metric [{}]'.format(
+                    workload, invariant, inv_id, metric)
                 continue
-                
-            base_df = gb.get_group(base_kernel)
+
+            base_df = gb.get_group(base_id)
             base_mean = base_df.mean()
 
-            for kernel, df in gb:
-                if kernel == base_kernel:
+            for group_id, df in gb:
+                print 'comparing {}'.format(group_id)
+
+                if group_id == base_id:
+                    print 'skipping'
                     continue
 
                 new_mean = df.mean()
@@ -172,9 +187,9 @@ def compare_dirs(base_kernel, results_df, by='kernel'):
                 mean_diff_pct = mean_diff * 100. / base_mean
                 pvalue =  ttest_ind(df, base_df, equal_var=False).pvalue
                 comparisons.append(Comparison(
-                    metric, '_'.join([workload, str(conf_id)]),
-                    base_kernel, base_mean, base_df.std(), 
-                    kernel, new_mean, df.std(),
+                    metric, '_'.join([workload, str(inv_id)]),
+                    base_id, base_mean, base_df.std(),
+                    group_id, new_mean, df.std(),
                     mean_diff, mean_diff_pct, pvalue))
 
     return pd.DataFrame(comparisons)
@@ -364,7 +379,7 @@ df2 = count_wakeups(trace2)
 
 # In[ ]:
 
-df2 - df1 
+df2 - df1
 
 
 # In[ ]:
