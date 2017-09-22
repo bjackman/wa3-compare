@@ -1,53 +1,22 @@
 
-# coding: utf-8
-
-# In[1]:
-
-get_ipython().magic(u'load_ext autoreload')
-get_ipython().magic(u'autoreload 2')
-
-
-# In[2]:
-
-from collections import defaultdict, namedtuple
-from itertools import combinations
+from collections import namedtuple
 import csv
 import json
 import numpy as np
 import pandas as pd
 import os
-import sys
 from scipy.stats import ttest_ind
-get_ipython().magic(u'matplotlib inline')
 import matplotlib.pyplot as plt
 from subprocess import check_output
 from devlib.target import KernelVersion
 from trace import Trace
-from conf import JsonConf
-
-
-# In[3]:
-
-# from conf import LisaLogging
-# import logging
-# LisaLogging.setup(level=logging.DEBUG)
-
-
-# In[4]:
-
-platform = JsonConf('/home/brendan/sources/lisa/libs/utils/platforms/hikey960.json').load()
-
-
-# In[5]:
 
 from bart.common.Utils import area_under_curve
 from trappy.utils import handle_duplicate_index
 
-
-# In[6]:
-
-def get_additional_metrics(trace_path):
-    trace = Trace(platform, trace_path, ['irq_handler_entry', 'cpu_frequency', 'sched_load_cfs_rq', 'nohz_kick'])
+def get_additional_metrics(trace_path, platform=None):
+    events = ['irq_handler_entry', 'cpu_frequency', 'sched_load_cfs_rq', 'nohz_kick']
+    trace = Trace(platform, trace_path, events)
 
     yield 'cpu_wakeup_count', len(trace.data_frame.cpu_wakeups()), None
 
@@ -67,7 +36,8 @@ def get_additional_metrics(trace_path):
             yield 'freq_transition_count_{}'.format(name), len(df), None
 
     if trace.hasEvents('sched_load_cfs_rq'):
-        util_sum = (handle_duplicate_index(trace.data_frame.trace_event('sched_load_cfs_rq')[lambda r: r.path == '/'])
+        df = trace.data_frame.trace_event('sched_load_cfs_rq')
+        util_sum = (handle_duplicate_index(df[lambda r: r.path == '/'])
                     .pivot(columns='cpu').util.ffill().sum(axis=1))
         avg_util_sum = area_under_curve(util_sum) / (util_sum.index[-1] - util_sum.index[0])
         yield 'avg_util_sum', avg_util_sum, None
@@ -75,16 +45,11 @@ def get_additional_metrics(trace_path):
     if trace.hasEvents('nohz_kick'):
         yield 'nohz_kick_count', len(trace.data_frame.trace_event('nohz_kick')), None
 
-
-# In[7]:
-
 def get_kernel_version(wa_dir):
     with open(os.path.join(wa_dir, '__meta', 'target_info.json')) as f:
         target_info = json.load(f)
     return KernelVersion(target_info['kernel_release']).sha1
 
-
-# In[13]:
 
 def get_results_summary(results_path):
     cached_csv_path = os.path.join(results_path, 'lisa_results.csv')
@@ -111,7 +76,8 @@ def get_results_summary(results_path):
             subdir = '-'.join([id, workload, str(iteration)])
 
             if subdir in subdirs_done:
-                # TODO: I think this is a bug: for 5 global iterations we get 5 jobs, I think there should only be one?
+                # TODO: I think this is a bug: for 5 global iterations we get 5
+                # jobs, I think there should only be one?
                 continue
 
             print 'parsing trace {}'.format(i)
@@ -134,8 +100,6 @@ def get_results_summary(results_path):
     df.to_csv(cached_csv_path)
 
     return df
-
-# In[14]:
 
 def get_results(*dirs):
     return reduce(lambda df1, df2: df1.append(df2), map(get_results_summary, dirs))
@@ -167,7 +131,6 @@ def compare_dirs(base_id, results_df, by='kernel'):
             print 'comparing {} {}'.format(workload, inv_id)
 
             if base_id not in gb.groups:
-                print gb.groups.keys()
                 print 'Skipping - No baseline results for workload [{}] {} [{}] metric [{}]'.format(
                     workload, invariant, inv_id, metric)
                 continue
@@ -176,10 +139,8 @@ def compare_dirs(base_id, results_df, by='kernel'):
             base_mean = base_df.mean()
 
             for group_id, df in gb:
-                print 'comparing {}'.format(group_id)
 
                 if group_id == base_id:
-                    print 'skipping'
                     continue
 
                 new_mean = df.mean()
@@ -194,58 +155,31 @@ def compare_dirs(base_id, results_df, by='kernel'):
 
     return pd.DataFrame(comparisons)
 
-# In[15]:
+# sha_map = {}
+# source_path = '/home/brendan/sources/linux/'
 
-dirs = [
-    '/home/brendan/sources/wa3-stuff/wa_output.hikey960_orig+waltfix/'
-#     '/home/brendan/sources/wa-stuff/wa_outputs-testing/nohz-updates-2/baseline',
-#     '/home/brendan/sources/wa-stuff/wa_outputs-testing/nohz-updates-2/vingu-original',
-#     '/home/brendan/sources/wa-stuff/wa_outputs-testing/nohz-updates-2/tick-instead',
-#     '/home/brendan/sources/wa-stuff/wa_outputs-testing/nohz-updates-2/full-stack',
-]
+# df = comparisons
 
-results = get_results(*dirs)
-base_kernel = get_kernel_version(dirs[0])
-comparisons = compare_dirs(base_kernel, results)
+# for sha in df.new_id.unique().tolist() + df.base_id.unique().tolist():
+#     tag = check_output(['git', '-C', source_path, 'describe', '--all', sha]).strip()
+#     sha_map[sha] = tag
+
+# for sha, tag in sha_map.iteritems():
+#     df = df.replace(sha, tag)
 
 
-# In[16]:
+def drop_unchanged_metrics(df):
+    # Drop metrics where none of the kernels showed a statistically significant
+    # difference
+    ignored_metrics = []
+    for metric, mdf in df.groupby('metric'):
+        if not any(mdf.pvalue < 0.1):
+            print 'min-p={:05.2f} diff_pct={:04.1f}  - Ignoring metric [{}] '.format(
+                mdf.pvalue.min(), mdf.diff_pct.mean(), metric)
+            ignored_metrics.append(metric)
+    df = df[~df.metric.isin(ignored_metrics)]
+    return df
 
-comparisons
-
-
-# In[ ]:
-
-sha_map = {}
-source_path = '/home/brendan/sources/linux/'
-
-df = comparisons
-
-for sha in df.new_id.unique().tolist() + df.base_id.unique().tolist():
-    tag = check_output(['git', '-C', source_path, 'describe', '--all', sha]).strip()
-    sha_map[sha] = tag
-
-for sha, tag in sha_map.iteritems():
-    df = df.replace(sha, tag)
-
-
-# In[ ]:
-
-sha_map
-
-
-# In[ ]:
-
-# Drop metrics where none of the kernels showed a statistically significant difference
-ignored_metrics = []
-for metric, mdf in df.groupby('metric'):
-    if not any(mdf.pvalue < 0.1):
-        print 'min-p={:05.2f} diff_pct={:04.1f}  - Ignoring metric [{}] '.format(mdf.pvalue.min(), mdf.diff_pct.mean(), metric)
-        ignored_metrics.append(metric)
-df = df[~df.metric.isin(ignored_metrics)]
-
-
-# In[ ]:
 def plot_comparisons(df):
     for wl_id, workload_comparisons in df.groupby('wl_id'):
         fig, ax = plt.subplots(figsize=(15, len(workload_comparisons) / 2.))
@@ -255,8 +189,9 @@ def plot_comparisons(df):
         colors = ['r', 'g', 'b']
         for i, (group, gdf) in enumerate(workload_comparisons.groupby('new_id')):
 
-            bars = ax.barh(bottom=pos + (i * thickness), width=gdf['diff_pct'], height=thickness, label=kernel,
-                        color=colors[i % len(colors)], align='center')
+            bars = ax.barh(bottom=pos + (i * thickness), width=gdf['diff_pct'],
+                           height=thickness, label=group,
+                           color=colors[i % len(colors)], align='center')
             for bar, pvalue in zip(bars, gdf['pvalue']):
                 bar.set_alpha(1 - (min(pvalue * 10, 0.95)))
 
@@ -270,141 +205,3 @@ def plot_comparisons(df):
 
         ax.grid(True)
         # ax.set_xticklabels(('G1', 'G2', 'G3', 'G4', 'G5'))
-
-# In[ ]:
-
-EVENTS=['sched_switch', 'irq_handler_entry', 'cpu_frequency', 'sched_load_cfs_rq']
-
-
-# In[ ]:
-
-from trappy.plotter import plot_trace
-
-
-# In[ ]:
-
-from trappy.utils import handle_duplicate_index
-
-
-# In[ ]:
-
-def get_traces(kernel):
-    paths = results[results.kernel == kernel].trace_path.dropna().unique()
-    return [Trace(platform, path, EVENTS) for path in paths]
-
-
-# In[ ]:
-
-base_traces = get_traces('c59bcd9')
-vingu_traces = get_traces('cee7b97')
-
-
-# In[ ]:
-
-trace1 = base_traces[0]
-trace2 = vingu_traces[0]
-
-
-# In[ ]:
-
-import matplotlib.pyplot as plt
-
-
-# In[ ]:
-
-def get_cum_wakeups(traces):
-    df = pd.DataFrame()
-    for i, trace in enumerate(traces):
-        _df = trace.data_frame.cpu_wakeups()
-        _df = pd.DataFrame(np.arange(len(_df)), index=_df.index, columns=[i])
-        df = df.join(_df, how='outer')
-    return df.ffill()
-fig, ax = plt.subplots(figsize=(20, 9))
-get_cum_wakeups(base_traces).plot(ax=ax, color='r')
-get_cum_wakeups(vingu_traces).plot(ax=ax, color='b')
-ax.legend().set_visible(False)
-
-
-# In[ ]:
-
-def do_plots(trace):
-    trace.analysis.frequency.plotClusterFrequencies()
-#     trace.analysis.cpus.plotCPU()
-    df = (handle_duplicate_index(trace.data_frame.trace_event('sched_load_cfs_rq'))
-          .pivot(columns='cpu')[lambda r: r.path == '/'].util)
-    df.plot(figsize=(20, 3))
-
-    df = trace.data_frame.cpu_wakeups()
-    df.reset_index().plot(kind='scatter', x='Time', y='__cpu', figsize=(20, 3))
-
-    df = pd.DataFrame(np.arange(len(df)), index=df.index)
-    df.plot(figsize=(20, 3))
-
-do_plots(trace1)
-do_plots(trace2)
-
-
-# In[ ]:
-
-p = trace1.data_dir + '/trace.dat'
-get_ipython().system(u'kernelshark $p')
-
-
-# In[ ]:
-
-get_ipython().system(u'trace-cmd report $p | grep cpu_idle | head -100')
-
-
-# In[ ]:
-
-pd.DataFrame([0, 1, 2]).tolist()
-
-
-# In[ ]:
-
-def count_wakeups(trace):
-    return trace.data_frame.cpu_wakeups().groupby('__cpu')['name'].describe()['count']
-
-
-# In[ ]:
-
-def count_freq_transitions(trace):
-    return trace.data_frame.trace_event('cpu_frequency').groupby('cpu')['frequency'].describe()['count']
-
-
-# In[ ]:
-
-df1 = count_wakeups(trace1)
-df2 = count_wakeups(trace2)
-
-
-# In[ ]:
-
-df2 - df1
-
-
-# In[ ]:
-
-df1 = count_freq_transitions(trace1)
-df2 = count_freq_transitions(trace2)
-
-
-# In[ ]:
-
-df2 - df1
-
-
-# In[ ]:
-
-get_ipython().system(u'trace-cmd report $p | grep irq_handler_entry | head')
-
-
-# In[ ]:
-
-trace1.analysis.frequency.plotCPUFrequencies(cpus=[0, 1])
-
-
-# In[ ]:
-
-trace2.analysis.frequency.plotCPUFrequencies(cpus=[0, 1])
-
