@@ -18,6 +18,7 @@ from trappy.utils import handle_duplicate_index
 # - There are some things I want to change about the WA3 output format
 # - This uses workload names where it should use the job id (but it also needs
 #   to compare across sections, which are also included in the job ID)
+# - Need to think about what happens if the worklod Id changes between Runs
 
 def get_additional_metrics(trace_path, platform=None):
     events = ['irq_handler_entry', 'cpu_frequency', 'sched_load_cfs_rq', 'nohz_kick', 'sched_switch']
@@ -105,6 +106,7 @@ def get_results_summary(results_path, platform=None):
     df['kernel'] = pd.Series(kver for _ in range(len(df))) # um
 
     df['section'] = df.id.apply(lambda id: id.split('-')[0])
+    df['wl_id'] = df.id.apply(lambda id: id.split('-')[1])
     df.to_csv(cached_csv_path)
 
     return df
@@ -152,7 +154,7 @@ def compare_dirs(base_id, results_df, by='kernel'):
         # depending on the `by` param.
         # So wl_inv_results will be the results entries for that workload on
         # that kernel/section
-        for (workload, inv_id), wl_inv_results in metric_results.groupby(['workload', invariant]):
+        for (workload, inv_id), wl_inv_results in metric_results.groupby(['wl_id', invariant]):
             gb = wl_inv_results.groupby(by)['value']
 
             if base_id not in gb.groups:
