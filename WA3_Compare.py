@@ -61,8 +61,8 @@ def get_kernel_version(wa_dir):
 
 def get_results_summary(results_path, platform=None):
     cached_csv_path = os.path.join(results_path, 'lisa_results.csv')
-    if os.path.exists(cached_csv_path):
-        return pd.read_csv(cached_csv_path)
+    # if os.path.exists(cached_csv_path):
+    #     return pd.read_csv(cached_csv_path)
 
     csv_path = os.path.join(results_path, 'results.csv')
     df = pd.read_csv(csv_path)
