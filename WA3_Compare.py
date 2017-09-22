@@ -31,7 +31,7 @@ def get_additional_metrics(trace_path, platform=None):
             name = '-'.join(str(c) for c in cluster)
 
             df = trace.data_frame.cluster_frequency_residency(cluster)
-            if df is None:
+            if df is None or df.empty:
                 print "Can't get cluster freq residency from {}".format(trace.data_dir)
             else:
                 df = df.reset_index()
