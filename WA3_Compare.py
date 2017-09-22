@@ -26,10 +26,13 @@ def get_additional_metrics(trace_path, platform=None):
             name = '-'.join(str(c) for c in cluster)
 
             df = trace.data_frame.cluster_frequency_residency(cluster)
-            df = df.reset_index()
-            avg_freq = (df.frequency * df.time).sum() / df.time.sum()
-            metric = 'avg_freq_cluster_{}'.format(name)
-            yield metric, avg_freq, 'MHz'
+            if df is None:
+                print "Can't get cluster freq residency from {}".format(trace.data_dir)
+            else:
+                df = df.reset_index()
+                avg_freq = (df.frequency * df.time).sum() / df.time.sum()
+                metric = 'avg_freq_cluster_{}'.format(name)
+                yield metric, avg_freq, 'MHz'
 
             df = trace.data_frame.trace_event('cpu_frequency')
             df = df[df.cpu == cluster[0]]
