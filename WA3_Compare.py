@@ -231,7 +231,7 @@ def plot_comparisons(df):
         ax.set_title('{}: Percent difference compared to {} \nopacity depicts p-value'.format(wl_id, baseline))
         ax.set_yticklabels(gdf['metric'])
         ax.set_yticks(pos + thickness / 2)
-        ax.set_xlim((-50, 50))
+        # ax.set_xlim((-50, 50))
         ax.legend(loc='best')
 
         ax.grid(True)
