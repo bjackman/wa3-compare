@@ -14,6 +14,11 @@ from trace import Trace
 from bart.common.Utils import area_under_curve
 from trappy.utils import handle_duplicate_index
 
+# TODOs:
+# - There are some things I want to change about the WA3 output format
+# - This uses workload names where it should use the job id (but it also needs
+#   to compare across sections, which are also included in the job ID)
+
 def get_additional_metrics(trace_path, platform=None):
     events = ['irq_handler_entry', 'cpu_frequency', 'sched_load_cfs_rq', 'nohz_kick', 'sched_switch']
     trace = Trace(platform, trace_path, events)
