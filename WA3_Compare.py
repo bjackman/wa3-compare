@@ -51,7 +51,7 @@ def get_kernel_version(wa_dir):
     return KernelVersion(target_info['kernel_release']).sha1
 
 
-def get_results_summary(results_path):
+def get_results_summary(results_path, platform=None):
     cached_csv_path = os.path.join(results_path, 'lisa_results.csv')
     if os.path.exists(cached_csv_path):
         return pd.read_csv(cached_csv_path)
@@ -84,7 +84,7 @@ def get_results_summary(results_path):
             i += 1
 
             trace_path = os.path.join(results_path, subdir, 'trace.dat')
-            for metric, value, units in get_additional_metrics(trace_path):
+            for metric, value, units in get_additional_metrics(trace_path, platform=platform):
                 df = df.append(pd.DataFrame({
                     'workload': workload, 'id': id, 'iteration': iteration,
                     'metric': metric, 'value': value, 'units': units,
@@ -101,8 +101,9 @@ def get_results_summary(results_path):
 
     return df
 
-def get_results(*dirs):
-    return reduce(lambda df1, df2: df1.append(df2), map(get_results_summary, dirs))
+def get_results(dirs, platform=None):
+    dfs = [get_results_summary(d, platform=platform) for d in dirs]
+    return reduce(lambda df1, df2: df1.append(df2), dfs)
 
 def compare_dirs(base_id, results_df, by='kernel'):
     comparisons = []
