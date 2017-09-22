@@ -114,9 +114,20 @@ def get_results(dirs, platform=None):
     return reduce(lambda df1, df2: df1.append(df2), dfs)
 
 def compare_dirs(base_id, results_df, by='kernel'):
-    comparisons = []
-    df = results_df
+    """
+    Take a DataFrame of WA results (from get_results) and find metrics that changed
 
+    This takes a DataFrame as returned by get_results, and returns a DataFrame
+    showing the changes in metrics, with respect to a given baseline, for all
+    variants it finds. The notion of 'variant' and 'baseline' is defined by the
+    `by` param. If by='kernel', then `base_id` should be a kernel SHA (or
+    whatever key the 'kernel' column in the results_df uses). If by='section'
+    then `base_id` should be a WA 'section id' (as named in the WA agenda).
+    """
+    comparisons = []
+
+    # I dunno why I wrote this with a namedtuple instead of just a dict or
+    # whatever, but it works nicely
     Comparison = namedtuple('Comparison', ['metric', 'wl_id',
                                            'base_id', 'base_mean', 'base_std',
                                            'new_id', 'new_mean', 'new_std',
@@ -136,32 +147,40 @@ def compare_dirs(base_id, results_df, by='kernel'):
                          'Did you mean to set by="{}"?'.format(
                              base_id, by, results_df[by].unique().tolist(), invariant))
 
-    for metric, group in df.groupby('metric'):
-
-        for (workload, inv_id), wl_inv_group in group.groupby(['workload', invariant]):
-            gb = wl_inv_group.groupby(by)['value']
+    for metric, metric_results in results_df.groupby('metric'):
+        # inv_id will either be the id of the kernel or of the section,
+        # depending on the `by` param.
+        # So wl_inv_results will be the results entries for that workload on
+        # that kernel/section
+        for (workload, inv_id), wl_inv_results in metric_results.groupby(['workload', invariant]):
+            gb = wl_inv_results.groupby(by)['value']
 
             if base_id not in gb.groups:
                 print 'Skipping - No baseline results for workload [{}] {} [{}] metric [{}]'.format(
                     workload, invariant, inv_id, metric)
                 continue
 
-            base_df = gb.get_group(base_id)
-            base_mean = base_df.mean()
+            base_results = gb.get_group(base_id)
+            base_mean = base_results.mean()
 
-            for group_id, df in gb:
-
+            for group_id, group_results in gb:
                 if group_id == base_id:
                     continue
 
-                new_mean = df.mean()
-                mean_diff = new_mean - base_mean
+                # group_id is now a kernel id or a section id (depending on
+                # `by`). group_results is a slice of all the rows of results_df
+                # for a given metric, workload, section/workload tuple. We
+                # create comparison object to show how that metric changed
+                # wrt. to the base section/workload.
+
+                group_mean = group_results.mean()
+                mean_diff = group_mean - base_mean
                 mean_diff_pct = mean_diff * 100. / base_mean
-                pvalue =  ttest_ind(df, base_df, equal_var=False).pvalue
+                pvalue =  ttest_ind(group_results, base_results, equal_var=False).pvalue
                 comparisons.append(Comparison(
                     metric, '_'.join([workload, str(inv_id)]),
-                    base_id, base_mean, base_df.std(),
-                    group_id, new_mean, df.std(),
+                    base_id, base_mean, base_results.std(),
+                    group_id, group_mean, group_results.std(),
                     mean_diff, mean_diff_pct, pvalue))
 
     return pd.DataFrame(comparisons)
