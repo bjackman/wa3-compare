@@ -20,6 +20,10 @@ from trappy.utils import handle_duplicate_index
 #   to compare across sections, which are also included in the job ID)
 # - Need to think about what happens if the worklod Id changes between Runs
 
+def get_cpu_time(trace, cpus):
+    df = pd.DataFrame([trace.getCPUActiveSignal(cpu) for cpu in cpus])
+    return df.sum(axis=1).sum(axis=0)
+
 def get_additional_metrics(trace_path, platform=None):
     events = ['irq_handler_entry', 'cpu_frequency', 'sched_load_cfs_rq', 'nohz_kick', 'sched_switch']
     trace = Trace(platform, trace_path, events)
@@ -44,6 +48,12 @@ def get_additional_metrics(trace_path, platform=None):
             df = df[df.cpu == cluster[0]]
             yield 'freq_transition_count_{}'.format(name), len(df), None
 
+            active_time = area_under_curve(trace.getClusterActiveSignal(cluster))
+            yield 'active_time_cluster_{}'.format(name), active_time, 'seconds'
+
+            yield 'cpu_time_cluster_{}'.format(name), get_cpu_time(trace, cluster), 'cpu-seconds'
+
+    yield 'cpu_time_total', get_cpu_time(trace, range(trace.platform['cpus_count'])), 'cpu-seconds'
     if trace.hasEvents('sched_load_cfs_rq'):
         df = trace.data_frame.trace_event('sched_load_cfs_rq')
         util_sum = (handle_duplicate_index(df[lambda r: r.path == '/'])
