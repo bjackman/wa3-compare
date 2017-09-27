@@ -292,3 +292,106 @@ class WaResultsCollector(object):
 
     def get_workload_ids(self, workload):
         return self.results_df.groupby('workload').get_group(workload)['workload_id'].unique()
+
+    def find_comparisons(self, base_id=None, by='kernel'):
+        """
+        Find metrics that changed between a baseline and variants
+
+        The notion of 'variant' and 'baseline' is defined by the `by` param. If
+        by='kernel', then `base_id` should be a kernel SHA (or whatever key the
+        'kernel' column in the results_df uses). If by='tag' then `base_id`
+        should be a WA 'tag id' (as named in the WA agenda).
+        """
+        comparisons = []
+
+        # I dunno why I wrote this with a namedtuple instead of just a dict or
+        # whatever, but it works fine
+        Comparison = namedtuple('Comparison', ['metric', 'workload_id',
+                                               'base_id', 'base_mean', 'base_std',
+                                               'new_id', 'new_mean', 'new_std',
+                                               'diff', 'diff_pct', 'pvalue'])
+
+        # If comparing by kernel, only check comparisons where the 'tag' is the same
+        # If comparing by tag, only check where kernel is same
+        if by == 'kernel':
+            invariant = 'tag'
+        elif by == 'tag':
+            invariant = 'kernel'
+        else:
+            raise ValueError('`by` must be "kernel" or "tag"')
+
+        available_baselines = self.results_df[by].unique()
+        if base_id is None:
+            base_id = available_baselines[0]
+        if base_id not in available_baselines:
+            raise ValueError('base_id "{}" not a valid "{}" (available: {}). '
+                            'Did you mean to set by="{}"?'.format(
+                                base_id, by, available_baselines, invariant))
+
+        for metric, metric_results in self.results_df.groupby('metric'):
+            # inv_id will either be the id of the kernel or of the tag,
+            # depending on the `by` param.
+            # So wl_inv_results will be the results entries for that workload on
+            # that kernel/tag
+            for (workload, inv_id), wl_inv_results in metric_results.groupby(['workload_id', invariant]):
+                gb = wl_inv_results.groupby(by)['value']
+
+                if base_id not in gb.groups:
+                    print 'Skipping - No baseline results for workload [{}] {} [{}] metric [{}]'.format(
+                        workload, invariant, inv_id, metric)
+                    continue
+
+                base_results = gb.get_group(base_id)
+                base_mean = base_results.mean()
+
+                for group_id, group_results in gb:
+                    if group_id == base_id:
+                        continue
+
+                    # group_id is now a kernel id or a tag (depending on
+                    # `by`). group_results is a slice of all the rows of self.results_df
+                    # for a given metric, workload, tag/workload tuple. We
+                    # create comparison object to show how that metric changed
+                    # wrt. to the base tag/workload.
+
+                    group_mean = group_results.mean()
+                    mean_diff = group_mean - base_mean
+                    mean_diff_pct = mean_diff * 100. / base_mean
+                    pvalue =  ttest_ind(group_results, base_results, equal_var=False).pvalue
+                    comparisons.append(Comparison(
+                        metric, '_'.join([workload, str(inv_id)]),
+                        base_id, base_mean, base_results.std(),
+                        group_id, group_mean, group_results.std(),
+                        mean_diff, mean_diff_pct, pvalue))
+
+        return pd.DataFrame(comparisons)
+
+    def plot_comparisons(self, base_id=None, by='kernel'):
+        df = self.find_comparisons(base_id=base_id, by=by)
+
+        for workload_id, workload_comparisons in df.groupby('workload_id'):
+            fig, ax = plt.subplots(figsize=(15, len(workload_comparisons) / 2.))
+
+            thickness=0.3
+            pos = np.arange(len(workload_comparisons['metric'].unique()))
+            colors = ['r', 'g', 'b']
+            for i, (group, gdf) in enumerate(workload_comparisons.groupby('new_id')):
+
+                bars = ax.barh(bottom=pos + (i * thickness), width=gdf['diff_pct'],
+                            height=thickness, label=group,
+                            color=colors[i % len(colors)], align='center')
+                for bar, pvalue in zip(bars, gdf['pvalue']):
+                    bar.set_alpha(1 - (min(pvalue * 10, 0.95)))
+
+            # add some text for labels, title and axes ticks
+            ax.set_xlabel('Percent difference')
+            [baseline] = workload_comparisons['base_id'].unique()
+            ax.set_title('{}: Percent difference compared to {} \nopacity depicts p-value'
+                         .format(workload_id, baseline))
+            ax.set_yticklabels(gdf['metric'])
+            ax.set_yticks(pos + thickness / 2)
+            # ax.set_xlim((-50, 50))
+            ax.legend(loc='best')
+
+            ax.grid(True)
+            # ax.set_xticklabels(('G1', 'G2', 'G3', 'G4', 'G5'))
