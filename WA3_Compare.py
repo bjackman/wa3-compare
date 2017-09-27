@@ -25,7 +25,8 @@ def get_cpu_time(trace, cpus):
     return df.sum(axis=1).sum(axis=0)
 
 def get_additional_metrics(trace_path, platform=None):
-    events = ['irq_handler_entry', 'cpu_frequency', 'sched_load_cfs_rq', 'nohz_kick', 'sched_switch']
+    events = ['irq_handler_entry', 'cpu_frequency', 'nohz_kick', 'sched_switch',
+              'sched_load_cfs_rq', 'sched_load_avg_task']
     trace = Trace(platform, trace_path, events)
 
     yield 'cpu_wakeup_count', len(trace.data_frame.cpu_wakeups()), None
@@ -54,10 +55,20 @@ def get_additional_metrics(trace_path, platform=None):
             yield 'cpu_time_cluster_{}'.format(name), get_cpu_time(trace, cluster), 'cpu-seconds'
 
     yield 'cpu_time_total', get_cpu_time(trace, range(trace.platform['cpus_count'])), 'cpu-seconds'
+
+    event = None
     if trace.hasEvents('sched_load_cfs_rq'):
-        df = trace.data_frame.trace_event('sched_load_cfs_rq')
-        util_sum = (handle_duplicate_index(df[lambda r: r.path == '/'])
-                    .pivot(columns='cpu').util.ffill().sum(axis=1))
+        event = 'sched_load_cfs_rq'
+        row_filter = lambda r: r.path == '/'
+        column = 'util'
+    elif trace.hasEvents('sched_load_avg_cpu'):
+        event = 'sched_load_avg_cpu'
+        row_filter = lambda r: True
+        column = 'util_avg'
+    if event:
+        df = trace.data_frame.trace_event(event)
+        util_sum = (handle_duplicate_index(df)[row_filter]
+                    .pivot(columns='cpu')[column].ffill().sum(axis=1))
         avg_util_sum = area_under_curve(util_sum) / (util_sum.index[-1] - util_sum.index[0])
         yield 'avg_util_sum', avg_util_sum, None
 
