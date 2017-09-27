@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from subprocess import check_output
 from devlib.target import KernelVersion
 from trace import Trace
+import matplotlib.cm as cm
 
 from bart.common.Utils import area_under_curve
 from trappy.utils import handle_duplicate_index
@@ -150,4 +151,62 @@ class WaResultsCollector(object):
         fig.suptitle('')
         axes.set_xlim(0,tmax)
         axes.set_xlabel('[{}]'.format(units))
+        plt.show()
+
+    CDF = namedtuple('CDF', ['df', 'threshold', 'above', 'below'])
+
+    def get_cdf(self, data, threshold):
+        """
+        Build the "Cumulative Distribution Function" (CDF) for the given data
+        """
+        # Build the series of sorted values
+        ser = data.sort_values()
+        if len(ser) < 1000:
+            # Append again the last (and largest) value.
+            # This step is important especially for small sample sizes
+            # in order to get an unbiased CDF
+            ser = ser.append(pd.Series(ser.iloc[-1]))
+        df = pd.Series(np.linspace(0., 1., len(ser)), index=ser)
+
+        # Compute percentage of samples above/below the specified threshold
+        below = float(max(df[:threshold]))
+        above = 1 - below
+        return self.CDF(df, threshold, above, below)
+
+    def plot_cdf(self, workload='jankbench', metric='frame_total_duration',
+                 threshold=16, tag='.*', kernel='.*', workload_id='.*'):
+
+        df = (self._select(tag, kernel, workload_id)
+              .groupby(['workload', 'metric'])
+              .get_group((workload, metric)))
+
+        units = df['units'].unique()
+        if len(units) > 1:
+            raise RuntimError('Found different units for workload "{}" metric "{}": {}'
+                              .format(workload, metric, units))
+        [units] = units
+
+        test_cnt = len(df.groupby(['workload_id', 'tag', 'kernel']))
+        colors = iter(cm.rainbow(np.linspace(0, 1, test_cnt+1)))
+
+        fig, axes = plt.subplots()
+        axes.axvspan(0, threshold, facecolor='g', alpha=0.1);
+
+        labels = []
+        lines = []
+        for keys, df in df.groupby(['workload_id', 'tag', 'kernel']):
+            labels.append("{:16s}: {:32s}".format(keys[2], keys[1]))
+            color = next(colors)
+            cdf = self.get_cdf(df['value'], threshold)
+            ax = cdf.df.plot(ax=axes, legend=False, xlim=(0,None), figsize=(16, 6),
+                             title='Total duration CDF ({:.1f}% within {} [{}] threshold)'\
+                             .format(100. * cdf.below, threshold, units),
+                             label=workload_id, color=color)
+            lines.append(ax.lines[-1])
+            axes.axhline(y=cdf.below, linewidth=1,
+                         linestyle='--', color=color)
+            print("%-32s: %-32s: %.1f", keys[2], keys[1], 100.*cdf.below)
+
+        axes.grid(True)
+        axes.legend(lines, labels)
         plt.show()
