@@ -113,7 +113,7 @@ def get_results_summary(results_path, platform=None):
             subdirs_done.append(subdir)
 
     kver = get_kernel_version(results_path)
-    df['kernel'] = pd.Series(kver for _ in range(len(df))) # um
+    df.loc[:, 'kernel'] = kver
 
     df['section'] = df.id.apply(lambda id: id.split('-')[0])
     df['wl_id'] = df.id.apply(lambda id: id.split('-')[1])
