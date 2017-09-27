@@ -24,12 +24,14 @@ def get_cpu_time(trace, cpus):
     df = pd.DataFrame([trace.getCPUActiveSignal(cpu) for cpu in cpus])
     return df.sum(axis=1).sum(axis=0)
 
-def get_additional_metrics(trace_path, platform=None):
+def get_trace_metrics(trace_path, platform=None):
+    metrics = []
+
     events = ['irq_handler_entry', 'cpu_frequency', 'nohz_kick', 'sched_switch',
               'sched_load_cfs_rq', 'sched_load_avg_task']
     trace = Trace(platform, trace_path, events)
 
-    yield 'cpu_wakeup_count', len(trace.data_frame.cpu_wakeups()), None
+    metrics.append(('cpu_wakeup_count', len(trace.data_frame.cpu_wakeups()), None))
 
     clusters = trace.platform.get('clusters')
     if clusters:
@@ -43,18 +45,18 @@ def get_additional_metrics(trace_path, platform=None):
                 df = df.reset_index()
                 avg_freq = (df.frequency * df.time).sum() / df.time.sum()
                 metric = 'avg_freq_cluster_{}'.format(name)
-                yield metric, avg_freq, 'MHz'
+                metrics.append((metric, avg_freq, 'MHz'))
 
             df = trace.data_frame.trace_event('cpu_frequency')
             df = df[df.cpu == cluster[0]]
-            yield 'freq_transition_count_{}'.format(name), len(df), None
+            metrics.append(('freq_transition_count_{}'.format(name), len(df), None))
 
             active_time = area_under_curve(trace.getClusterActiveSignal(cluster))
-            yield 'active_time_cluster_{}'.format(name), active_time, 'seconds'
+            metrics.append(('active_time_cluster_{}'.format(name), active_time, 'seconds'))
 
-            yield 'cpu_time_cluster_{}'.format(name), get_cpu_time(trace, cluster), 'cpu-seconds'
+            metrics.append(('cpu_time_cluster_{}'.format(name), get_cpu_time(trace, cluster), 'cpu-seconds'))
 
-    yield 'cpu_time_total', get_cpu_time(trace, range(trace.platform['cpus_count'])), 'cpu-seconds'
+    metrics.append(('cpu_time_total', get_cpu_time(trace, range(trace.platform['cpus_count'])), 'cpu-seconds'))
 
     event = None
     if trace.hasEvents('sched_load_cfs_rq'):
@@ -70,10 +72,32 @@ def get_additional_metrics(trace_path, platform=None):
         util_sum = (handle_duplicate_index(df)[row_filter]
                     .pivot(columns='cpu')[column].ffill().sum(axis=1))
         avg_util_sum = area_under_curve(util_sum) / (util_sum.index[-1] - util_sum.index[0])
-        yield 'avg_util_sum', avg_util_sum, None
+        metrics.append(('avg_util_sum', avg_util_sum, None))
 
     if trace.hasEvents('nohz_kick'):
-        yield 'nohz_kick_count', len(trace.data_frame.trace_event('nohz_kick')), None
+        metrics.append(('nohz_kick_count', len(trace.data_frame.trace_event('nohz_kick')), None))
+
+    return [{'metric': m, 'value': v, 'units': u, 'trace_path': trace_path}
+            for m, v, u in metrics]
+
+def get_additional_metrics(results_path, id, workload, iteration, platform=None):
+    subdir = '-'.join([id, workload, str(iteration)])
+
+    metrics = []
+
+    trace_path = os.path.join(results_path, subdir, 'trace.dat')
+    if os.path.exists(trace_path):
+        metrics += get_trace_metrics(trace_path)
+
+    if workload == 'jankbench':
+        with open(os.path.join(results_path, subdir, 'jankbench_frames.csv')) as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                metrics.append({'metric': 'frame_total_duration',
+                                'value': float(row['total_duration']),
+                                'units': 'ms'})
+
+    return pd.DataFrame(metrics)
 
 def get_kernel_version(wa_dir):
     with open(os.path.join(wa_dir, '__meta', 'target_info.json')) as f:
@@ -113,21 +137,35 @@ def get_results_summary(results_path, platform=None):
             print 'parsing trace {}'.format(i)
             i += 1
 
+            # TODO rework this so that the additional stuff returns DataFrames
             trace_path = os.path.join(results_path, subdir, 'trace.dat')
-            for metric, value, units in get_additional_metrics(trace_path, platform=platform):
-                df = df.append(pd.DataFrame({
-                    'workload': workload, 'id': id, 'iteration': iteration,
-                    'metric': metric, 'value': value, 'units': units,
-                    'trace_path': trace_path
-                }, index=[df.index[-1] + 1]))
+            extra_df = get_additional_metrics(
+                results_path, id, workload, iteration, platform=platform)
+            extra_df.loc[:, 'workload'] = workload
+            extra_df.loc[:, 'iteration'] = iteration
+            extra_df.loc[:, 'trace_path'] = trace_path
+            extra_df.loc[:, 'id'] = id
+
+            df = df.append(extra_df)
 
             subdirs_done.append(subdir)
 
     kver = get_kernel_version(results_path)
     df.loc[:, 'kernel'] = kver
 
-    df['section'] = df.id.apply(lambda id: id.split('-')[0])
-    df['wl_id'] = df.id.apply(lambda id: id.split('-')[1])
+    print df['id'].unique()
+
+    # TODO: this is wrong and bad
+    # Need to stop relying on 'section'. Hopefully using WA API can make this
+    # better
+    try:
+        df['section'] = df.id.apply(lambda id: id.split('-')[0])
+        df['wl_id'] = df.id.apply(lambda id: id.split('-')[1])
+    except IndexError:
+        # Probably no sections
+        df.loc[:, 'section'] = None
+        df['wl_id'] = df['id']
+
     df.to_csv(cached_csv_path)
 
     return df
