@@ -17,9 +17,10 @@ from trappy.utils import handle_duplicate_index
 # TODO strip imports
 
 class WaResultsCollector(object):
-    def __init__(self, wa_dirs, platform=None):
+    def __init__(self, wa_dirs, platform=None, use_cached_trace_metrics=True):
         self.results_df = pd.DataFrame()
         self.platform = platform
+        self.use_cached_trace_metrics = use_cached_trace_metrics
 
         for wa_dir in wa_dirs:
             df = self.read_wa_dir(wa_dir)
@@ -71,31 +72,110 @@ class WaResultsCollector(object):
 
             extra_df = self.get_extra_job_metrics(job_dir, workload)
 
-            if extra_df is not None:
-                extra_df.loc[:, 'workload'] = workload
-                extra_df.loc[:, 'iteration'] = iteration
-                extra_df.loc[:, 'id'] = job_id
-                extra_df.loc[:, 'tag'] = tag
-                extra_df.loc[:, 'workload_id'] = workload_id
+            extra_df.loc[:, 'workload'] = workload
+            extra_df.loc[:, 'iteration'] = iteration
+            extra_df.loc[:, 'id'] = job_id
+            extra_df.loc[:, 'tag'] = tag
+            extra_df.loc[:, 'workload_id'] = workload_id
 
-                df = df.append(extra_df)
+            df = df.append(extra_df)
 
         df.loc[:, 'kernel'] = self.get_kernel_version(wa_dir)
 
         return df
 
+    def get_trace_metrics(self, trace_path):
+        cache_path = os.path.join(os.path.dirname(trace_path), 'lisa_trace_metrics.csv')
+        if self.use_cached_trace_metrics and os.path.exists(cache_path):
+            return pd.read_csv(cache_path)
+
+        # I wonder if this should go in LISA itself? Probably.
+
+        metrics = []
+        events = ['irq_handler_entry', 'cpu_frequency', 'nohz_kick', 'sched_switch',
+                'sched_load_cfs_rq', 'sched_load_avg_task']
+        trace = Trace(self.platform, trace_path, events)
+
+        if hasattr(trace.data_frame, 'cpu_wakeups'): # Not merged in LISA yet
+            metrics.append(('cpu_wakeup_count', len(trace.data_frame.cpu_wakeups()), None))
+
+        # Helper to get area under curve of multiple CPU active signals
+        def get_cpu_time(trace, cpus):
+            df = pd.DataFrame([trace.getCPUActiveSignal(cpu) for cpu in cpus])
+            return df.sum(axis=1).sum(axis=0)
+
+        clusters = trace.platform.get('clusters')
+        if clusters:
+            for cluster in clusters.values():
+                name = '-'.join(str(c) for c in cluster)
+
+                df = trace.data_frame.cluster_frequency_residency(cluster)
+                if df is None or df.empty:
+                    print "Can't get cluster freq residency from {}".format(trace.data_dir)
+                else:
+                    df = df.reset_index()
+                    avg_freq = (df.frequency * df.time).sum() / df.time.sum()
+                    metric = 'avg_freq_cluster_{}'.format(name)
+                    metrics.append((metric, avg_freq, 'MHz'))
+
+                df = trace.data_frame.trace_event('cpu_frequency')
+                df = df[df.cpu == cluster[0]]
+                metrics.append(('freq_transition_count_{}'.format(name), len(df), None))
+
+                active_time = area_under_curve(trace.getClusterActiveSignal(cluster))
+                metrics.append(('active_time_cluster_{}'.format(name),
+                                active_time, 'seconds'))
+
+                metrics.append(('cpu_time_cluster_{}'.format(name),
+                                get_cpu_time(trace, cluster), 'cpu-seconds'))
+
+        metrics.append(('cpu_time_total',
+                        get_cpu_time(trace, range(trace.platform['cpus_count'])),
+                        'cpu-seconds'))
+
+        event = None
+        if trace.hasEvents('sched_load_cfs_rq'):
+            event = 'sched_load_cfs_rq'
+            row_filter = lambda r: r.path == '/'
+            column = 'util'
+        elif trace.hasEvents('sched_load_avg_cpu'):
+            event = 'sched_load_avg_cpu'
+            row_filter = lambda r: True
+            column = 'util_avg'
+        if event:
+            df = trace.data_frame.trace_event(event)
+            util_sum = (handle_duplicate_index(df)[row_filter]
+                        .pivot(columns='cpu')[column].ffill().sum(axis=1))
+            avg_util_sum = area_under_curve(util_sum) / (util_sum.index[-1] - util_sum.index[0])
+            metrics.append(('avg_util_sum', avg_util_sum, None))
+
+        if trace.hasEvents('nohz_kick'):
+            metrics.append(('nohz_kick_count', len(trace.data_frame.trace_event('nohz_kick')), None))
+
+        ret = pd.DataFrame(metrics, columns=['metric', 'value', 'units'])
+        if self.use_cached_trace_metrics:
+            ret.to_csv(cache_path)
+
+        return ret
+
     def get_extra_job_metrics(self, job_dir, workload):
         # return
         # value,metric,units
+        metrics_df = pd.DataFrame()
+
+        trace_path = os.path.join(job_dir, 'trace.dat')
+        if os.path.exists(trace_path):
+            metrics_df = metrics_df.append(self.get_trace_metrics(trace_path))
+
         if workload == 'jankbench':
             df = pd.read_csv(os.path.join(job_dir, 'jankbench_frames.csv'))
             df = pd.DataFrame({'value': df['total_duration']})
             df.loc[:, 'metric'] = 'frame_total_duration'
             df.loc[:, 'units'] = 'ms'
 
-            return df
+            metrics_df = metrics_df.append(df)
 
-        return None
+        return metrics_df
 
     def get_kernel_version(self, wa_dir):
         with open(os.path.join(wa_dir, '__meta', 'target_info.json')) as f:
