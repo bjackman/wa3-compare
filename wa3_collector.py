@@ -110,9 +110,18 @@ class WaResultsCollector(object):
 
     def plot_total_duration(self, tag='.*', kernel='.*', workload_id='.*',
                             by=['workload_id', 'tag', 'kernel'], tmax=32):
+        workload = 'jankbench'
+        metric = 'frame_total_duration'
+
         df = (self._select(tag, kernel, workload_id)
-               .groupby(['workload', 'metric'])
-               .get_group(('jankbench', 'frame_total_duration')))
+              .groupby(['workload', 'metric'])
+              .get_group((workload, metric)))
+
+        units = df['units'].unique()
+        if len(units) > 1:
+            raise RuntimError('Found different units for workload "{}" metric "{}": {}'
+                              .format(workload, metric, units))
+        [units] = units
 
         # Sort groups by mean duration - this will be the order of the plots
         gb = df.groupby(by)
@@ -140,5 +149,5 @@ class WaResultsCollector(object):
         _df.boxplot(ax=axes, vert=False, showmeans=True)
         fig.suptitle('')
         axes.set_xlim(0,tmax)
-        axes.set_xlabel('[ms]')
+        axes.set_xlabel('[{}]'.format(units))
         plt.show()
