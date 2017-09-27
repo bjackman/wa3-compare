@@ -109,10 +109,9 @@ class WaResultsCollector(object):
         _df = _df[_df.workload_id.str.match(workload_id)]
         return _df
 
-    def plot_total_duration(self, tag='.*', kernel='.*', workload_id='.*',
+    def plot_total_duration(self, workload='jankbench', metric='frame_total_duration',
+                            tag='.*', kernel='.*', workload_id='.*',
                             by=['workload_id', 'tag', 'kernel'], tmax=32):
-        workload = 'jankbench'
-        metric = 'frame_total_duration'
 
         df = (self._select(tag, kernel, workload_id)
               .groupby(['workload', 'metric'])
@@ -205,8 +204,11 @@ class WaResultsCollector(object):
             lines.append(ax.lines[-1])
             axes.axhline(y=cdf.below, linewidth=1,
                          linestyle='--', color=color)
-            print("%-32s: %-32s: %.1f", keys[2], keys[1], 100.*cdf.below)
+            print "%-32s: %-32s: %.1f" % (keys[2], keys[1], 100.*cdf.below)
 
         axes.grid(True)
         axes.legend(lines, labels)
         plt.show()
+
+    def get_workload_ids(self, workload):
+        return self.results_df.groupby('workload').get_group(workload)['workload_id'].unique()
