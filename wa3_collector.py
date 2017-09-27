@@ -101,25 +101,38 @@ class WaResultsCollector(object):
             target_info = json.load(f)
         return KernelVersion(target_info['kernel_release']).sha1
 
-    def select(self, df, tag='.*ml.*', branch='.*', test='.*'):
+    def _select(self, tag='.*', kernel='.*', workload_id='.*'):
+        _df = self.results_df
+        _df = _df[_df.tag.str.match(tag)]
+        _df = _df[_df.kernel.str.match(kernel)]
+        _df = _df[_df.workload_id.str.match(workload_id)]
         return _df
 
     def plot_total_duration(self, tag='.*', kernel='.*', workload_id='.*',
-                            by=['workload_id', 'tag', 'branch'], tmax=32):
-        _df = (self.results_df
-              .groupby(['workload', 'metric'])
-              .get_group(('jankbench', 'frame_total_duration')))
-
-        _df = _df[_df.tag.str.match(tag)]
-        _df = _df[_df.branch.str.match(branch)]
-        _df = _df[_df.test.str.match(test)]
+                            by=['workload_id', 'tag', 'kernel'], tmax=32):
+        df = (self._select(tag, kernel, workload_id)
+               .groupby(['workload', 'metric'])
+               .get_group(('jankbench', 'frame_total_duration')))
 
         # Sort groups by mean duration - this will be the order of the plots
-        # (TODO: I think this code can be simplified)
-        grouped = _df[by + ['value']].groupby(by)
-        _df = pd.DataFrame({c:v['value'] for c,v in grouped})
+        gb = df.groupby(by)
+
+        # Convert the groupby into a DataFrame with a column for each group
+        max_group_size = max(len(group) for group in gb.groups.itervalues())
+        _df = pd.DataFrame()
+        for group_name, group in gb:
+            # Need to pad the group's column so that they all have the same
+            # length
+            padding_length = max_group_size - len(group)
+            padding = pd.Series(np.nan, index=np.arange(padding_length))
+            col = group['value'].append(padding)
+            col.index = np.arange(max_group_size)
+            _df[group_name] = col
+
+        # Sort the columns so that the groups with the lowest mean get plotted
+        # at the top
         avgs = _df.mean()
-        avgs.sort(ascending=False)
+        avgs = avgs.sort_values(ascending=False)
         _df = _df[avgs.index]
 
         # Plot boxes sorted by mean
@@ -129,11 +142,3 @@ class WaResultsCollector(object):
         axes.set_xlim(0,tmax)
         axes.set_xlabel('[ms]')
         plt.show()
-
-        stats = self.select(self.prf_df, tag, branch, test)\
-            .groupby(by)['value']\
-            .describe(percentiles=[0.75, 0.95, 0.99])
-        _df = pd.DataFrame(stats)
-        _df = _df.unstack();
-
-        return _df
