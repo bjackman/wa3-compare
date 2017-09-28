@@ -41,28 +41,44 @@ class WaResultsCollector(object):
         # isn't necessary).
         next_iteration = defaultdict(lambda: 1)
 
-        # See comment below about splitting job_id
-        df['tag'] = df.id.apply(lambda id: id.split('-')[0])
-        df['workload_id'] = df.id.apply(lambda id: id.split('-')[1])
+        # Dicts mapping job IDs to 'tag' and 'workload_id'
+        tag_map = {}
+        workload_id_map = {}
 
         for job in jobs:
             workload = job['workload_name']
 
             job_id = job['id']
 
-            # The 'tag' should describe the userspace configuration or other
-            # changes made to the system without changing the kernel code under
-            # test. Right now we are using the 'id' field of each 'section'
-            # entry for that, but this is not really right.
-            #
-            # The workload_id identifies it among the 'workloads' entry in the
-            # agenda - basically it identifies a workload+workload_parameters
-            # tuple.
-            #
-            # Right now we are identifying both of them by splitting up the
-            # job's id, but this is not correct. We should be using
-            # 'classifiers' to do that, but I don't know how yet.
-            tag, workload_id = job_id.split('-')
+            # If there's a 'tag' in the 'classifiers' object, use that to
+            # identify the runtime configuration. If not, use a representation
+            # of the full key=value pairs.
+            classifiers = job['classifiers']
+            rich_tag = ';'.join('{}={}'.format(k, v) for k, v in classifiers.iteritems())
+            tag = classifiers.get('tag', rich_tag)
+
+            if job_id in tag_map:
+                # Double check I didn't do a stupid
+                if tag_map[job_id] != tag:
+                    raise RuntimeError('Multiple tags ({}, {}) found for job ID {}'
+                                       .format(tag, tag_map[job_id], job_id))
+
+            tag_map[job_id] = tag
+
+
+            # Jankbench & others have sub-workloads that we are interested
+            # in. The sub-workload for those benchmarks is identified by the
+            # 'test' field in workload_parameters. We'll use that as a
+            # 'workload_id'.
+            workload_id = job['workload_parameters'].get('test', workload)
+
+            if job_id in workload_id_map:
+                # Double check I didn't do a stupid
+                if workload_id_map[job_id] != workload_id:
+                    raise RuntimeError('Multiple workload_ids ({}, {}) found for job ID {}'
+                                       .format(workload_id, workload_id_map[job_id], job_id))
+
+            workload_id_map[job_id] = workload_id
 
             iteration = next_iteration[job_id]
             next_iteration[job_id] += 1
@@ -80,6 +96,8 @@ class WaResultsCollector(object):
 
             df = df.append(extra_df)
 
+        df['tag'] = df['id'].replace(tag_map)
+        df['workload_id'] = df['id'].replace(workload_id_map)
         df.loc[:, 'kernel'] = self.get_kernel_version(wa_dir)
 
         return df
