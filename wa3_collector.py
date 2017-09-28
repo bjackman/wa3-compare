@@ -86,6 +86,13 @@ class WaResultsCollector(object):
             job_dir = os.path.join(wa_dir,
                                    '-'.join([job_id, workload, str(iteration)]))
 
+            with open(os.path.join(job_dir, 'result.json')) as f:
+                job_result = json.load(f)
+                if job_result['status'] == 'FAILED':
+                    print 'Skipping failed iteration {} of job {}'.format(
+                        iteration, job_id)
+                    continue
+
             extra_df = self.get_extra_job_metrics(job_dir, workload)
 
             extra_df.loc[:, 'workload'] = workload
