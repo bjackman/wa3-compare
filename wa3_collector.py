@@ -65,12 +65,19 @@ class WaResultsCollector(object):
 
             tag_map[job_id] = tag
 
-
-            # Jankbench & others have sub-workloads that we are interested
-            # in. The sub-workload for those benchmarks is identified by the
-            # 'test' field in workload_parameters. We'll use that as a
-            # 'workload_id'.
-            workload_id = job['workload_parameters'].get('test', workload)
+            if 'test' in job['classifiers']:
+                # If the workload spec has a 'test' classifier, use that to
+                # identify it.
+                workload_id = job['classifiers']['test']
+            elif 'test' in job['workload_parameters']:
+                # If not, some workloads have a 'test' workload_parameter, try
+                # using that
+                workload_id = job['workload_parameters']['test']
+            else:
+                # Otherwise just use the workload name.
+                # This isn't ideal because it means the results from jobs with
+                # different wokload parameters will be amalgamated.
+                workload_id = workload
 
             if job_id in workload_id_map:
                 # Double check I didn't do a stupid
