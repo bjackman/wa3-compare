@@ -387,6 +387,12 @@ class WaResultsCollector(object):
     def plot_comparisons(self, base_id=None, by='kernel'):
         df = self.find_comparisons(base_id=base_id, by=by)
 
+        if df.empty:
+            print 'No comparisons by {} found'.format(by)
+            if len(self.results_df[by].unique()) == 1:
+                print '... because there is only one {} in the results'.format(by)
+            return
+
         for workload_id, workload_comparisons in df.groupby('workload_id'):
             fig, ax = plt.subplots(figsize=(15, len(workload_comparisons) / 2.))
 
