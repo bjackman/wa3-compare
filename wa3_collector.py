@@ -221,9 +221,9 @@ class WaResultsCollector(object):
         _df = _df[_df.workload_id.str.match(workload_id)]
         return _df
 
-    def plot_total_duration(self, workload='jankbench', metric='frame_total_duration',
-                            tag='.*', kernel='.*', workload_id='.*',
-                            by=['workload_id', 'tag', 'kernel'], tmax=32):
+    def do_boxplots(self, workload, metric,
+                    tag='.*', kernel='.*', workload_id='.*',
+                    by=['workload_id', 'tag', 'kernel'], xlim=None):
 
         df = (self._select(tag, kernel, workload_id)
               .groupby(['workload', 'metric'])
@@ -259,9 +259,10 @@ class WaResultsCollector(object):
         # Plot boxes sorted by mean
         fig, axes = plt.subplots(figsize=(16,8))
         _df.boxplot(ax=axes, vert=False, showmeans=True)
-        fig.suptitle('')
-        axes.set_xlim(0,tmax)
-        axes.set_xlabel('[{}]'.format(units))
+        fig.suptitle('"{}" for workload "{}"'.format(metric, workload))
+        if xlim:
+            axes.set_xlim(xlim)
+        axes.set_xlabel('{} [{}]'.format(metric, units))
         plt.show()
 
     CDF = namedtuple('CDF', ['df', 'threshold', 'above', 'below'])
