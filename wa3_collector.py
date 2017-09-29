@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import os
 from scipy.stats import ttest_ind
+import subprocess
 import matplotlib.pyplot as plt
 from subprocess import check_output
 from devlib.target import KernelVersion
@@ -16,19 +17,56 @@ from trappy.utils import handle_duplicate_index
 
 # TODO strip imports
 
+def get_branch_name_from_hash(repo_path, sha1_in):
+    repo_path = os.path.expanduser(repo_path)
+    possibles = []
+    # Can't use git for-each-ref --points-at because it only came in in Git 2.7
+    # which is not in Ubuntu 14.04 - check by hand instead.
+    branches = subprocess.check_output(
+        "git for-each-ref --sort=-committerdate "
+        "--format='%(objectname:short) %(refname:short)' "
+        "refs/heads/ refs/remotes/ refs/tags",
+        cwd=repo_path, shell=True)
+    for line in branches.splitlines():
+        try:
+            sha1_out, name = line.strip().split()
+        except:
+            continue
+        if sha1_out[:7] == sha1_in[:7]:
+            possibles.append(name)
+    if not possibles:
+        return None
+
+    return min(possibles, key=len)
+
 class WaResultsCollector(object):
-    def __init__(self, wa_dirs, platform=None, use_cached_trace_metrics=True):
-        self.results_df = pd.DataFrame()
+    def __init__(self, wa_dirs, platform=None, kernel_repo_path=None,
+                 use_cached_trace_metrics=True):
         self.platform = platform
         self.use_cached_trace_metrics = use_cached_trace_metrics
 
+        df = pd.DataFrame()
         for wa_dir in wa_dirs:
-            df = self.read_wa_dir(wa_dir)
-            self.results_df = self.results_df.append(df)
+            df = df.append(self.read_wa_dir(wa_dir))
+
+        kernel_names = {}
+        if kernel_repo_path:
+            for sha1 in df['kernel_sha1'].unique():
+                name = get_branch_name_from_hash(kernel_repo_path, sha1)
+                if name:
+                    kernel_names[sha1] = name
+
+        common_prefix = os.path.commonpath(kernel_names.values())
+        for sha1, name in kernel_names.iteritems():
+            kernel_names[sha1] = name[len(common_prefix):]
+
+        df['kernel'] = df['kernel_sha1'].replace(kernel_names)
+
+        self.results_df = df
 
     def read_wa_dir(self, wa_dir):
         # return
-        # kernel,id,workload,tag,workload_id,iteration,metric,value,units
+        # kernel_sha1,id,workload,tag,workload_id,iteration,metric,value,units
         df = pd.read_csv(os.path.join(wa_dir, 'results.csv'))
 
         with open(os.path.join(wa_dir, '__meta', 'jobs.json')) as f:
@@ -112,7 +150,7 @@ class WaResultsCollector(object):
 
         df['tag'] = df['id'].replace(tag_map)
         df['workload_id'] = df['id'].replace(workload_id_map)
-        df.loc[:, 'kernel'] = self.get_kernel_version(wa_dir)
+        df.loc[:, 'kernel_sha1'] = self.wa_get_kernel_sha1(wa_dir)
 
         return df
 
@@ -209,7 +247,7 @@ class WaResultsCollector(object):
 
         return metrics_df
 
-    def get_kernel_version(self, wa_dir):
+    def wa_get_kernel_sha1(self, wa_dir):
         with open(os.path.join(wa_dir, '__meta', 'target_info.json')) as f:
             target_info = json.load(f)
         return KernelVersion(target_info['kernel_release']).sha1
