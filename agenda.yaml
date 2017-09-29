@@ -1,0 +1,136 @@
+config:
+  instrumentation: [energy_measuremt, trace-cmd]
+
+global:
+  iterations: 5
+
+  # To aid reproducibility and try to reduce noise in power measurements,
+  # minimise the screen brightness and set airplane mode on.
+  # TODO: will this break workloads that require internet?
+  runtime_params:
+    brightness: 0
+    airplane_mode: true
+
+# "Sections" are groups of runtime configuration. In the results analysis they
+# will be mapped to "tags" using the classifiers field below
+sections:
+  - id: pelt         # Just a human-readable name
+    classifiers:     # Will be used to map job output to 'tags' when analysing
+      load_tracking: pelt_cls
+    runtime_params:  # These are the actual parameters that get set on the target
+      sysfile_values:
+        /proc/sys/kernel/sched_use_walt_cpu_util: 0
+        /proc/sys/kernel/sched_use_walt_task_util: 0
+
+  - id: walt
+    classifiers:
+      load_tracking: walt_cls
+    runtime_params:
+      sysfile_values:
+        /proc/sys/kernel/sched_use_walt_cpu_util: 1
+        /proc/sys/kernel/sched_use_walt_task_util: 1
+
+workloads:
+  - name: youtube_playback
+
+  - name: homescreen
+    workload_parameters:
+      duration: 5
+
+  - name: exoplayer
+    workload_parameters:
+      duration: 30
+
+  - name: pcmark
+
+  - name: geekbench
+
+  - name: jankbench
+    classifiers:
+      test: jb_list_view
+    workload_parameters:
+      test: list_view
+  - name: jankbench
+    classifiers:
+      test: jb_image_list_view
+    workload_parameters:
+      test: image_list_view
+  - name: jankbench
+    classifiers:
+      test: jb_shadow_grid
+    workload_parameters:
+      test: shadow_grid
+  - name: jankbench
+    classifiers:
+      test: jb_low_hitrate_text
+    workload_parameters:
+      test: low_hitrate_text
+  - name: jankbench
+    classifiers:
+      test: jb_edit_text
+    workload_parameters:
+      test: edit_text
+
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: LauncherJankTests#testOpenAllAppsContainer
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: LauncherJankTests#testAllAppsContainerSwipe
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: LauncherJankTests#testHomeScreenSwipe
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: LauncherJankTests#testWidgetsContainerFling
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SettingsJankTests#testSettingsFling
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testRecentAppsFling
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testRecentAppsDismiss
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testNotificationListPull
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testNotificationListPull_manyNotifications
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testQuickSettingsPull
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testUnlock
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testExpandGroup
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testClearAll
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testChangeBrightness
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testNotificationAppear
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testCameraFromLockscreen
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testAmbientWakeUp
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testGoToFullShade
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testInlineReply
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testPinAppearance
+  - name: ubsystemuijanktests
+    workload_parameters:
+      test: SystemUiJankTests#testLaunchSettings
