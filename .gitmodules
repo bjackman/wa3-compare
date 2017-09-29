@@ -1,0 +1,9 @@
+[submodule "wa3"]
+	path = wa3
+	url = https://github.com/bjackman/workload-automation.git
+	branch = d994fa8b73dac665aa34672823b11870e1eb99ab
+
+[submodule "devlib"]
+	path = devlib
+	url = https://github.com/bjackman/devlib.git
+	branch = 6bb24aa12a8ca20c2803a8c3fb3c7fc2c3bd79e7
