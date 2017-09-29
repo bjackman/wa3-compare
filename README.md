@@ -23,12 +23,12 @@ source wa3.virtualenv/bin/activate
 # Install WA3 & devlib
 pip install -e ./wa3 ./devlib
 
-# Verify and initialize WA3 installation
-wa list workloads
-
 # Set up initial WA3 config
 mkdir -p ~/.workload-automation
 cp ./wa-config.yaml.skel ~/.workload_automation/config.yaml
+
+# Verify WA3 installation
+wa list workloads
 ```
 
 Edit `~/.workload_automation/config.yaml`: you may need to alter the acme_cape
